@@ -1,6 +1,6 @@
 from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_bootstrap import Bootstrap
-from flask_ckeditor import CKEditor
+from flask_ckeditor import CKEditor, CKEditorField
 from datetime import date
 from flask_wtf import FlaskForm
 import wtforms
@@ -45,6 +45,8 @@ class BlogPost(db.Model):
     body = db.Column(db.Text, nullable=False)
     img_url = db.Column(db.String(250), nullable=False)
 
+    comments = relationship("Comment", back_populates="parent_post")
+
 
 class User(UserMixin, db.Model):
     __tablename__ = "users"
@@ -55,6 +57,19 @@ class User(UserMixin, db.Model):
     # this will act like a list of blogpost objects attached to each user.
     # the author refers to the author property in the blogpost class.
     posts = relationship("BlogPost", back_populates="author")
+
+    comments = relationship("Comment", back_populates="comment_author")
+
+
+class Comment(db.Model):
+    __tablename__ = "comments"
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.Text, nullable=False)
+    author_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    comment_author = relationship("User", back_populates="comments")
+
+    post_id = db.Column(db.Integer, db.ForeignKey("blog_posts.id"))
+    parent_post = relationship('BlogPost', back_populates='comments')
 
 
 with app.app_context():
@@ -73,6 +88,11 @@ class UserLoginForm(FlaskForm):
     email = wtforms.EmailField(label='Email', validators=[wtforms.validators.DataRequired(), wtforms.validators.Email()])
     password = wtforms.PasswordField(label='Password', validators=[wtforms.validators.DataRequired()])
     submit = wtforms.SubmitField(label="Let me login")
+
+
+class CommentForm(FlaskForm):
+    body = CKEditorField(label="Comment")
+    submit = wtforms.SubmitField(label="Submit Comment")
 
 
 # def admin_only(f):
@@ -159,13 +179,24 @@ def logout():
     return redirect(url_for('get_all_posts'))
 
 
-@app.route("/post/<int:post_id>")
+@app.route("/post/<int:post_id>", methods=["POST", "GET"])
 def show_post(post_id):
+    form = CommentForm()
     with app.app_context():
         requested_post = BlogPost.query.get(post_id)
-
         print(requested_post.author.name)
-    return render_template("post.html", post=requested_post)
+        if request.method == "POST":
+            new_comment = Comment(
+                text=request.form['body'],
+                author_id=current_user.id,
+                post_id=post_id
+            )
+            db.session.add(new_comment)
+            db.session.commit()
+            return redirect(url_for('show_post', post_id=post_id))
+        for i in requested_post.comments:
+            print(i.comment_author.name)
+    return render_template("post.html", post=requested_post, form=form)
 
 
 @app.route("/about")
